@@ -10,6 +10,7 @@ from torch import distributions
 
 from cs285.infrastructure import pytorch_util as ptu
 from cs285.policies.base_policy import BasePolicy
+from cs285.infrastructure.utils import standardize
 
 
 class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
@@ -87,6 +88,18 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # query the policy with observation(s) to get selected action(s)
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         # TODO: get this from HW1
+        if len(obs.shape) > 1:
+            observation = obs
+        else:
+            observation = obs[None]
+
+        with torch.no_grad():
+            action_dist: distributions.distribution.Distribution = self(
+                ptu.from_numpy(observation)
+            )
+            # works for batches? maybe doesn't matter
+            action = action_dist.sample()
+            return ptu.to_numpy(action)
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
@@ -134,7 +147,14 @@ class MLPPolicyPG(MLPPolicy):
         # HINT2: you will want to use the `log_prob` method on the distribution returned
             # by the `forward` method
 
-        TODO
+        self.optimizer.zero_grad()
+        actions_dist: distributions.distribution.Distribution = self(observations)
+        # autodiff trick (J~ in notes), more efficient than explicit REINFORCE,
+        # average over all actions taken (variable length episodes):
+        loss = -1. * torch.mean(actions_dist.log_prob(actions) * advantages)
+        assert loss.requires_grad
+        loss.backward()
+        self.optimizer.step()
 
         if self.nn_baseline:
             ## TODO: update the neural network baseline using the q_values as
@@ -143,11 +163,18 @@ class MLPPolicyPG(MLPPolicy):
 
             ## Note: You will need to convert the targets into a tensor using
                 ## ptu.from_numpy before using it in the loss
-
-            TODO
+            
+            assert self._baseline_pred is not None
+            q_values = ptu.from_numpy(standardize(q_values))
+            baseline_loss = self.baseline_loss(self._baseline_pred, q_values)
+            self._baseline_pred = None
+            assert baseline_loss.requires_grad
+            baseline_loss.backward()
+            self.baseline_optimizer.step()
 
         train_log = {
             'Training Loss': ptu.to_numpy(loss),
+            'Baseline Loss': ptu.to_numpy(baseline_loss),
         }
         return train_log
 
@@ -162,5 +189,8 @@ class MLPPolicyPG(MLPPolicy):
 
         """
         observations = ptu.from_numpy(observations)
+        self.baseline_optimizer.zero_grad()
         pred = self.baseline(observations)
-        return ptu.to_numpy(pred.squeeze())
+        pred = pred.squeeze()
+        self._baseline_pred = pred
+        return ptu.to_numpy(pred)

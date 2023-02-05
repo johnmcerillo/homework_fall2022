@@ -55,13 +55,90 @@ def mean_squared_error(a, b):
 ############################################
 
 def sample_trajectory(env, policy, max_path_length, render=False, render_mode=('rgb_array')):
+    """
+        Collect rollouts until we have collected min_timesteps_per_batch steps.
+
+        TODO implement this function
+        Hint1: use sample_trajectory to get each path (i.e. rollout) that goes into paths
+        Hint2: use get_pathlength to count the timesteps collected in each path
+    """
     # TODO: get this from hw1
+    # initialize env for the beginning of a new rollout
+    ob = env.reset() # HINT: should be the output of resetting the env
+
+    # init vars
+    obs, acs, rewards, next_obs, terminals, image_obs = [], [], [], [], [], []
+    steps = 0
+    while True:
+
+        # render image of the simulated env
+        if render:
+            # use render_mode?
+            if hasattr(env, 'sim'):
+                image_obs.append(env.sim.render(camera_name='track', height=500, width=500)[::-1])
+            else:
+                # render only on video recording steps?
+                image_obs.append(env.render())
+
+        # use the most recent ob to decide what to do
+        obs.append(ob)
+        ac = policy.get_action(ob) # HINT: query the policy's get_action function
+        ac = ac[0]
+        acs.append(ac)
+
+        # take that action and record results
+        ob, rew, done, _ = env.step(ac)
+
+        # record result of taking that action
+        steps += 1
+        next_obs.append(ob)
+        rewards.append(rew)
+
+        # TODO end the rollout if the rollout ended
+        # HINT: rollout can end due to done, or due to max_path_length
+        rollout_done = int(done or max_path_length <= steps)  # HINT: this is either 0 or 1
+        terminals.append(rollout_done)
+
+        if rollout_done:
+            break
+
+    return Path(obs, image_obs, acs, rewards, next_obs, terminals)
 
 def sample_trajectories(env, policy, min_timesteps_per_batch, max_path_length, render=False, render_mode=('rgb_array')):
+    """
+        Collect rollouts until we have collected min_timesteps_per_batch steps.
+
+        TODO implement this function
+        Hint1: use sample_trajectory to get each path (i.e. rollout) that goes into paths
+        Hint2: use get_pathlength to count the timesteps collected in each path
+    """
     # TODO: get this from hw1
+    timesteps_this_batch = 0
+    paths = []
+    while timesteps_this_batch < min_timesteps_per_batch:
+
+        path = sample_trajectory(env, policy, max_path_length, render)
+        paths.append(path)
+        timesteps_this_batch += get_pathlength(path)
+
+    return paths, timesteps_this_batch
 
 def sample_n_trajectories(env, policy, ntraj, max_path_length, render=False, render_mode=('rgb_array')):
+    """
+        Collect ntraj rollouts.
+
+        TODO implement this function
+        Hint1: use sample_trajectory to get each path (i.e. rollout) that goes into paths
+    """
     # TODO: get this from hw1
+    paths = []
+
+    paths.extend(
+        (sample_trajectory(env, policy, max_path_length, render)
+         for _ in range(ntraj))
+        )
+
+    return paths
 
 ############################################
 ############################################
@@ -106,6 +183,14 @@ def normalize(data, mean, std, eps=1e-8):
 
 def unnormalize(data, mean, std):
     return data*std+mean
+
+def standardize(values, mean=0., std=1.):
+    # how exactly does this help?
+    values_stdize = normalize(values, np.mean(values), np.std(values))
+    values_stdize = unnormalize(values_stdize, mean, std)
+    assert (np.allclose(mean, np.mean(values_stdize), rtol=0., atol=1e-3)
+            and np.allclose(std, np.std(values_stdize), rtol=0., atol=1e-3))
+    return values_stdize
 
 def add_noise(data_inp, noiseToSignal=0.01):
 
