@@ -132,4 +132,26 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 class MLPPolicyAC(MLPPolicy):
     def update(self, observations, actions, adv_n=None):
         # TODO: update the policy and return the loss
+        observations = ptu.from_numpy(observations)
+        actions = ptu.from_numpy(actions)
+        advantages = ptu.from_numpy(adv_n)
+
+        # TODO: update the policy using policy gradient
+        # HINT1: Recall that the expression that we want to MAXIMIZE
+            # is the expectation over collected trajectories of:
+            # sum_{t=0}^{T-1} [grad [log pi(a_t|s_t) * (Q_t - b_t)]]
+        # HINT2: you will want to use the `log_prob` method on the distribution returned
+            # by the `forward` method
+
+        self.optimizer.zero_grad()
+        actions_dist: distributions.distribution.Distribution = self(observations)
+        # autodiff trick (J~ in notes), more efficient than explicit REINFORCE,
+        # average over all actions taken (variable length episodes):
+        loss = -1. * torch.mean(actions_dist.log_prob(actions) * advantages)
+        assert loss.requires_grad
+        loss.backward()
+        self.optimizer.step()
+
+        assert not self.nn_baseline
+
         return loss.item()
